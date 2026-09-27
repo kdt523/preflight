@@ -1,0 +1,58 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches-ignore: [main] # main runs the same checks inside deploy.yml
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Unit tests
+        run: uv run pytest -q --junitxml=reports/unit.xml
+      - name: Start services
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait postgres redis s3
+          uv run alembic upgrade head
+      - name: Integration tests
+        run: uv run pytest -q -m integration --junitxml=reports/integration.xml
+      # Preflight's own JUnit results feed its per-test model (dogfooding)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit
+          path: reports/*.xml
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra/terraform fmt -check -recursive
+      - run: terraform -chdir=infra/terraform init -backend=false -input=false
+      - run: terraform -chdir=infra/terraform validate
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t preflight:ci .

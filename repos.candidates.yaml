@@ -1,0 +1,47 @@
+# Candidate OSS repos for backfill. Python-heavy so the pytest plugin + per-test model apply.
+# scripts/select_repos.py measures each one and writes the chosen 20 to repos.yaml.
+candidates:
+  - pandas-dev/pandas
+  - numpy/numpy
+  - scipy/scipy
+  - scikit-learn/scikit-learn
+  - matplotlib/matplotlib
+  - pydantic/pydantic
+  - fastapi/fastapi
+  - fastapi/sqlmodel
+  - encode/httpx
+  - encode/starlette
+  - pallets/flask
+  - django/django
+  - pytest-dev/pytest
+  - python/mypy
+  - psf/black
+  - pola-rs/polars
+  - apache/airflow
+  - home-assistant/core
+  - pypa/pip
+  - sphinx-doc/sphinx
+  - dask/dask
+  - pydata/xarray
+  - scrapy/scrapy
+  - streamlit/streamlit
+  - celery/celery
+  - sqlalchemy/sqlalchemy
+  - huggingface/transformers
+  - Lightning-AI/pytorch-lightning
+  - mlflow/mlflow
+  - great-expectations/great_expectations
+  - getsentry/sentry
+  - python-poetry/poetry
+  - pypa/hatch
+  - aio-libs/aiohttp
+  - ipython/ipython
+  - sympy/sympy
+  - networkx/networkx
+  - pymc-devs/pymc
+  - optuna/optuna
+  - dagster-io/dagster
+  - PrefectHQ/prefect
+  - zulip/zulip
+  - saleor/saleor
+  - wagtail/wagtail

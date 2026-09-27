@@ -1,0 +1,45 @@
+# Thresholds mirror the code (tests/unit/test_mlops.py keeps them in sync).
+groups:
+  - name: preflight
+    rules:
+      - alert: PreflightFeatureDrift
+        expr: preflight_drift_psi_max > 0.25
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "Feature drift: max PSI {{ $value | printf \"%.2f\" }} (> 0.25)"
+          runbook: "Check reports/monitor_latest.json; retrain via scripts/retrain.py"
+
+      - alert: PreflightLivePrAucDrop
+        expr: preflight_rolling_pr_auc < 0.85 * on() group_left() max(preflight_rolling_pr_auc offset 7d)
+        for: 6h
+        labels: {severity: warning}
+        annotations:
+          summary: "Live PR-AUC fell >15% vs last week"
+
+      - alert: PreflightScorerSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(preflight_score_latency_seconds_bucket[10m]))) > 0.3
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "Scorer p95 latency above 300 ms SLO"
+
+      - alert: PreflightFailOpenSpike
+        expr: sum(rate(preflight_fail_open_total[15m])) / clamp_min(sum(rate(preflight_predictions_total[15m])) + sum(rate(preflight_fail_open_total[15m])), 1e-9) > 0.1
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 10% of checks are failing open"
+
+      - alert: PreflightQueueBacklog
+        expr: preflight_queue_lag_messages > 100
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Webhook queue backlog {{ $value }} messages"
+
+      - alert: PreflightDeadLetters
+        expr: increase(preflight_dlq_total[1h]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Events moved to the dead-letter stream"

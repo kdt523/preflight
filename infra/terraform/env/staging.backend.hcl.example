@@ -1,0 +1,5 @@
+# Copy to staging.backend.hcl after creating the state bucket (see infra/README.md)
+bucket       = "preflight-tfstate-<account-id>"
+key          = "preflight/staging.tfstate"
+region       = "ap-south-1"
+use_lockfile = true

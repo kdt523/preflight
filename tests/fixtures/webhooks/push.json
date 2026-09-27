@@ -1,0 +1,6 @@
+{"ref": "refs/heads/main", "before": "9049f1265b7d61be4a8904a9a27120d2064dab3b",
+ "after": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "forced": false,
+ "commits": [{"id": "6dcb09b5b57875f334f61aebed695e2e4193db5e", "added": [], "removed": [],
+              "modified": ["src/auth.py"], "timestamp": "2026-05-01T09:59:00Z"}],
+ "repository": {"id": 1296269, "full_name": "acme/app", "default_branch": "main"},
+ "installation": {"id": 5555}, "sender": {"login": "dev1", "type": "User"}}

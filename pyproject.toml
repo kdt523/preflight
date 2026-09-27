@@ -1,0 +1,80 @@
+[project]
+name = "preflight"
+version = "0.1.0"
+description = "Predict CI build failure before the pipeline runs"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic-settings>=2.4",
+    "redis>=5.0",
+    "boto3>=1.34",
+    "pyyaml>=6.0",
+    "defusedxml>=0.7.1",
+    "pandas>=3.0.6",
+    "numpy>=2.5.3",
+    "pyarrow>=25.0.1",
+    "scikit-learn>=1.9.1",
+    "lightgbm>=4.7.0",
+    "shap>=0.52.0",
+    "mapie>=1.5.0",
+    "pandera>=0.33.1",
+    "imbalanced-learn>=0.14.2",
+    "mlflow-skinny>=3.16.1",
+    "matplotlib>=3.11.2",
+    "joblib>=1.6.0",
+    "pyjwt>=2.15.0",
+    "cryptography>=50.0.1",
+    "prometheus-client>=0.26.0",
+    "opentelemetry-sdk>=1.45.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.0",
+    "opentelemetry-instrumentation-fastapi>=0.66b0",
+    "streamlit>=1.64.0",
+    "plotly>=7.1.0",
+    "tabulate>=0.10.0",
+]
+
+[project.entry-points.pytest11]
+preflight = "pytest_plugin.plugin"
+
+[project.scripts]
+preflight = "cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "fakeredis>=2.24",
+    "ruff>=0.6",
+    "lupa>=2.8",
+    "locust>=2.46.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["preflight_core", "apps", "pytest_plugin", "cli"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["integration: needs docker compose services (postgres, redis, minio)"]
+addopts = "-m 'not integration'"

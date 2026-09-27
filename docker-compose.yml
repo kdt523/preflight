@@ -1,0 +1,160 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: preflight
+      POSTGRES_PASSWORD: preflight
+      POSTGRES_DB: preflight
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preflight"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  s3:
+    # S3-compatible local store (MinIO no longer publishes community images). Real S3 in Week 5.
+    image: chrislusf/seaweedfs:latest
+    command: server -dir=/data -s3 -s3.port=8333 -master.volumeSizeLimitMB=1024
+    ports: ["8333:8333"]
+    volumes: [s3data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/healthz || exit 1"]
+      interval: 3s
+      retries: 30
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment: &svc_env
+      DATABASE_URL: postgresql+psycopg://preflight:preflight@postgres:5432/preflight
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://s3:8333
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  ingest:
+    build: .
+    env_file: .env
+    environment: *svc_env
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      retries: 10
+
+  scorer:
+    build: .
+    command: ["uvicorn", "apps.scorer.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env_file: .env
+    environment:
+      <<: *svc_env
+      MODEL_ROOT: /app/models
+    volumes: ["./models:/app/models:ro"]
+    ports: ["8001:8001"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 5s
+      retries: 10
+
+  worker:
+    build: .
+    command: ["python", "-m", "apps.worker.main"]
+    env_file: .env
+    environment:
+      <<: *svc_env
+      SCORER_URL: http://scorer:8001
+      METRICS_PORT: "9102"
+    volumes: ["./models:/app/models:ro", "./secrets:/app/secrets:ro"]
+    depends_on:
+      scorer: {condition: service_healthy}
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "apps/dashboard/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    env_file: .env
+    environment: *svc_env
+    volumes: ["./reports:/app/reports:ro"]
+    ports: ["8501:8501"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  # -- MLOps + observability (week 5) --------------------------------------------------
+  mlflow:
+    build: ./infra/mlflow
+    environment:
+      DB_HOST: postgres
+      DB_PASSWORD: preflight
+      ARTIFACTS: s3://preflight-raw/mlflow
+      MLFLOW_S3_ENDPOINT_URL: http://s3:8333
+      AWS_ACCESS_KEY_ID: preflight
+      AWS_SECRET_ACCESS_KEY: preflight-secret
+    ports: ["5000:5000"]
+    depends_on:
+      mlflow-db: {condition: service_completed_successfully}
+      s3: {condition: service_healthy}
+    profiles: [ops]
+
+  mlflow-db:
+    image: postgres:16
+    command: ["sh", "-c", "psql -h postgres -U preflight -tc \"SELECT 1 FROM pg_database WHERE datname='mlflow'\" | grep -q 1 || psql -h postgres -U preflight -c 'CREATE DATABASE mlflow'"]
+    environment: {PGPASSWORD: preflight}
+    depends_on: {postgres: {condition: service_healthy}}
+    profiles: [ops]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+    profiles: [ops]
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.1
+    ports: ["9091:9091"]
+    profiles: [ops]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    volumes:
+      - ./infra/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./secrets:/etc/alertmanager/secrets:ro
+    ports: ["9093:9093"]
+    profiles: [ops]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    profiles: [ops]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.72.0
+    environment: {COLLECTOR_OTLP_ENABLED: "true"}
+    ports: ["16686:16686", "4318:4318"]
+    profiles: [ops]
+
+volumes:
+  pgdata:
+  s3data:

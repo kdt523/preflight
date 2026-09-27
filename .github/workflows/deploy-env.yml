@@ -1,0 +1,91 @@
+# Reusable: deploy one environment. The `prod` GitHub environment is configured with
+# required reviewers, so the prod call pauses for manual approval.
+#
+# Per-environment GitHub settings (Settings -> Environments -> <env>):
+#   secrets: AWS_DEPLOY_ROLE_ARN, WEBHOOK_SECRET, SCORER_API_TOKEN
+#   vars:    AWS_REGION, TF_STATE_BUCKET
+name: deploy-env
+on:
+  workflow_call:
+    inputs:
+      env: {type: string, required: true}
+      build: {type: boolean, required: true}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}
+    env:
+      TAG: ${{ github.sha }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push (staging)
+        if: inputs.build
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -t $REG/preflight-staging:$TAG .
+          docker push $REG/preflight-staging:$TAG
+          docker build -t $REG/preflight-staging-mlflow:latest infra/mlflow
+          docker push $REG/preflight-staging-mlflow:latest
+
+      - name: Promote tested image (prod)
+        if: ${{ !inputs.build }}
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker pull $REG/preflight-staging:$TAG
+          docker tag $REG/preflight-staging:$TAG $REG/preflight-prod:$TAG
+          docker push $REG/preflight-prod:$TAG
+          docker pull $REG/preflight-staging-mlflow:latest
+          docker tag $REG/preflight-staging-mlflow:latest $REG/preflight-prod-mlflow:latest
+          docker push $REG/preflight-prod-mlflow:latest
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform apply
+        working-directory: infra/terraform
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=preflight/${{ inputs.env }}.tfstate" \
+            -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
+          terraform apply -input=false -auto-approve \
+            -var-file=env/${{ inputs.env }}.tfvars -var image_tag=$TAG
+          echo "CLUSTER=$(terraform output -raw cluster)" >> $GITHUB_ENV
+          echo "BASE_URL=$(terraform output -raw scorer_url)" >> $GITHUB_ENV
+          echo "SUBNETS=$(terraform output -json task_subnets | jq -r 'join(",")')" >> $GITHUB_ENV
+          echo "SG=$(terraform output -raw task_security_group)" >> $GITHUB_ENV
+
+      - name: Run DB migrations
+        run: |
+          TASK=$(aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
+            --task-definition preflight-${{ inputs.env }}-migrate \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          aws ecs wait tasks-stopped --cluster $CLUSTER --tasks $TASK
+          CODE=$(aws ecs describe-tasks --cluster $CLUSTER --tasks $TASK \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          test "$CODE" = "0"
+
+      - name: Wait for services
+        run: aws ecs wait services-stable --cluster $CLUSTER --services ingest scorer worker
+
+      - uses: astral-sh/setup-uv@v6
+      - name: Smoke test
+        env:
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          SCORER_API_TOKEN: ${{ secrets.SCORER_API_TOKEN }}
+        run: |
+          uv sync --frozen
+          uv run python scripts/smoke.py --base-url $BASE_URL

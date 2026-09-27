@@ -1,0 +1,10 @@
+.venv
+.env
+data
+.git
+**/__pycache__
+models/bundles
+models/*.joblib
+reports
+notebooks/*.png
+mlruns
