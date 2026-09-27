@@ -4,15 +4,15 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-data/
+/data/
 *.egg-info/
 secrets/
 infra/terraform/.terraform/
 infra/terraform/env/*.backend.hcl
 *.tfstate*
-mlruns/
-mlartifacts/
-reports/
+/mlruns/
+/mlartifacts/
+/reports/
 
 # personal planning notes (kept local)
 chat-log.md
