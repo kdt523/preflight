@@ -17,8 +17,11 @@ jobs:
   checks:
     uses: ./.github/workflows/ci.yml
 
+  # Deploys are skipped (not failed) until AWS is set up: set the repository variable
+  # DEPLOY_ENABLED=true after following infra/README.md.
   staging:
     needs: checks
+    if: vars.DEPLOY_ENABLED == 'true'
     uses: ./.github/workflows/deploy-env.yml
     with:
       env: staging
